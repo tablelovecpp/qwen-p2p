@@ -1,3 +1,4 @@
+
 # P2P File Transfer
 
 A modern, high-performance peer-to-peer file transfer application built with C++23 and Qt6/QML.
@@ -286,3 +287,5 @@ MIT License - See LICENSE file for details
 **Version**: 1.0.0  
 **Build Date**: 2024  
 **Author**: P2P Transfer Team
+=======
+By Qwen-Coder
