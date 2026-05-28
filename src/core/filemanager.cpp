@@ -7,12 +7,34 @@
 #include <QMutexLocker>
 #include <filesystem>
 #include <fstream>
+#include <QSaveFile>
 
 namespace p2p {
 
 FileManager::FileManager(QObject* parent)
     : QObject(parent)
 {
+}
+
+// Helper function to validate and sanitize file paths
+bool FileManager::isValidPath(const QString& path, const QString& baseDirectory)
+{
+    if (path.isEmpty() || path.contains("..")) {
+        return false;
+    }
+    
+    // Resolve to canonical path
+    QFileInfo fi(path);
+    QString canonicalPath = fi.canonicalFilePath();
+    QString canonicalBase = QFileInfo(baseDirectory).canonicalFilePath();
+    
+    // Ensure the path is within the base directory
+    if (!canonicalPath.startsWith(canonicalBase + "/") && 
+        canonicalPath != canonicalBase) {
+        return false;
+    }
+    
+    return true;
 }
 
 QVector<FileInfo> FileManager::scanDirectory(const QString& path, bool recursive)
@@ -122,16 +144,63 @@ bool FileManager::saveFileChunk(const FileInfo& fileInfo, const QByteArray& data
 {
     QMutexLocker locker(&m_mutex);
     
-    QString destPath = getDefaultDownloadDirectory() + "/" + fileInfo.name;
+    // Get the default download directory as base path
+    QString baseDir = getDefaultDownloadDirectory();
+    QString destPath = baseDir + "/" + fileInfo.name;
     
-    QFile file(destPath);
-    if (!file.open(QIODevice::WriteOnly | (offset > 0 ? QIODevice::Append : QIODevice::Truncate))) {
+    // SECURITY FIX: Validate path to prevent directory traversal attacks
+    if (!isValidPath(destPath, baseDir)) {
+        emit transferError(fileInfo.id, tr("Invalid file path detected"));
+        return false;
+    }
+    
+    // Use QSaveFile for atomic writes to prevent corruption
+    std::unique_ptr<QSaveFile> file;
+    
+    // For first chunk (offset == 0), use atomic write
+    if (offset == 0) {
+        file = std::make_unique<QSaveFile>(destPath);
+    } else {
+        // For subsequent chunks, we need regular QFile with append
+        auto regularFile = std::make_unique<QFile>(destPath);
+        if (!regularFile->open(QIODevice::WriteOnly | QIODevice::Append)) {
+            emit transferError(fileInfo.id, tr("Failed to open file for writing: %1").arg(destPath));
+            return false;
+        }
+        regularFile->seek(offset);
+        if (regularFile->write(data) != data.size()) {
+            emit transferError(fileInfo.id, tr("Failed to write data"));
+            return false;
+        }
+        
+        // Update progress
+        auto it = m_activeTransfers.find(fileInfo.id);
+        if (it != m_activeTransfers.end()) {
+            it->second->transferredBytes += data.size();
+            double progress = static_cast<double>(it->second->transferredBytes) / it->second->totalSize;
+            emit transferProgress(fileInfo.id, progress, it->second->transferredBytes);
+            
+            if (it->second->transferredBytes >= it->second->totalSize) {
+                it->second->isActive = false;
+                // Verify file integrity after completion
+                QString finalHash = calculateHash(destPath);
+                if (!fileInfo.hash.isEmpty() && finalHash != fileInfo.hash) {
+                    emit transferError(fileInfo.id, tr("File integrity check failed"));
+                    return false;
+                }
+                emit transferCompleted(fileInfo.id, destPath);
+            }
+        }
+        return true;
+    }
+    
+    if (!file->open(QIODevice::WriteOnly)) {
         emit transferError(fileInfo.id, tr("Failed to open file for writing: %1").arg(destPath));
         return false;
     }
     
-    file.seek(offset);
-    if (file.write(data) != data.size()) {
+    file->seek(offset);
+    if (file->write(data) != data.size()) {
         emit transferError(fileInfo.id, tr("Failed to write data"));
         return false;
     }
@@ -145,6 +214,17 @@ bool FileManager::saveFileChunk(const FileInfo& fileInfo, const QByteArray& data
         
         if (it->second->transferredBytes >= it->second->totalSize) {
             it->second->isActive = false;
+            // Commit atomic write
+            if (!file->commit()) {
+                emit transferError(fileInfo.id, tr("Failed to commit file write"));
+                return false;
+            }
+            // SECURITY FIX: Verify file integrity after completion
+            QString finalHash = calculateHash(destPath);
+            if (!fileInfo.hash.isEmpty() && finalHash != fileInfo.hash) {
+                emit transferError(fileInfo.id, tr("File integrity check failed"));
+                return false;
+            }
             emit transferCompleted(fileInfo.id, destPath);
         }
     }

@@ -123,12 +123,65 @@ void Discovery::processPendingDatagrams()
         QNetworkDatagram datagram = m_socket->receiveDatagram();
         
         if (datagram.isValid()) {
+            // SECURITY FIX: Validate sender address to prevent UDP spoofing
+            // Only accept datagrams from private IP ranges or localhost
+            QHostAddress senderAddr = datagram.senderAddress();
+            if (!isTrustedAddress(senderAddr)) {
+                qWarning() << "Ignoring datagram from untrusted address:" << senderAddr.toString();
+                continue;
+            }
+            
             auto packet = parseAnnouncementPacket(datagram.data(), datagram.senderAddress());
             if (packet.has_value()) {
                 addOrUpdatePeer(packet.value());
             }
         }
     }
+}
+
+bool Discovery::isTrustedAddress(const QHostAddress& address) const
+{
+    // Allow localhost
+    if (address == QHostAddress::LocalHost || 
+        address == QHostAddress::LocalHostIPv6 ||
+        address.isLoopback()) {
+        return true;
+    }
+    
+    // Allow private IPv4 ranges (RFC 1918)
+    if (address.protocol() == QAbstractSocket::IPv4Protocol) {
+        quint32 ip = address.toIPv4Address();
+        
+        // 10.0.0.0/8
+        if ((ip & 0xFF000000) == 0x0A000000) {
+            return true;
+        }
+        
+        // 172.16.0.0/12
+        if ((ip & 0xFFF00000) == 0xAC100000) {
+            return true;
+        }
+        
+        // 192.168.0.0/16
+        if ((ip & 0xFFFF0000) == 0xC0A80000) {
+            return true;
+        }
+    }
+    
+    // Allow Unique Local Addresses (ULA) for IPv6 (fc00::/7)
+    if (address.protocol() == QAbstractSocket::IPv6Protocol) {
+        Q_IPV6ADDR ipv6 = address.toIPv6Address();
+        if ((ipv6[0] & 0xFE) == 0xFC) {
+            return true;
+        }
+    }
+    
+    // Allow link-local addresses
+    if (address.isMulticast() || address.isLinkLocal()) {
+        return true;
+    }
+    
+    return false;
 }
 
 void Discovery::onAnnouncementTimer()

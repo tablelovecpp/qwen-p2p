@@ -239,10 +239,15 @@ private:
     std::chrono::steady_clock::time_point m_lastSpeedUpdate;
     
     QString m_peerId;
+    QString m_localName;
     mutable std::mutex m_mutex;
     
+    static constexpr const char* PROTOCOL_VERSION = "1.0";
     static constexpr qint64 CHUNK_SIZE = 64 * 1024;  // 64KB chunks
     static constexpr int KEEPALIVE_INTERVAL = 30000;  // 30 seconds
+    
+    // Connection limits for DoS protection
+    static constexpr int MAX_CONNECTIONS = 50;
 };
 
 } // namespace p2p
