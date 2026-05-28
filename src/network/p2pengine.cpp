@@ -19,6 +19,7 @@ P2PEngine::P2PEngine(QObject* parent)
     , m_bytesDownloaded(0)
     , m_lastSpeedUpdate(std::chrono::steady_clock::now())
     , m_peerId(generatePeerId())
+    , m_localName(QHostInfo::localHostName())
 {
     // Setup server
     connect(m_server.get(), &QTcpServer::newConnection, 
@@ -198,6 +199,17 @@ QString P2PEngine::generatePeerId()
 
 void P2PEngine::onNewConnection()
 {
+    // SECURITY FIX: Limit maximum connections to prevent DoS attacks
+    if (m_connections.size() >= MAX_CONNECTIONS) {
+        qWarning() << "Maximum connection limit reached, rejecting new connection";
+        QTcpSocket* socket = m_server->nextPendingConnection();
+        if (socket) {
+            socket->disconnectFromHost();
+            socket->deleteLater();
+        }
+        return;
+    }
+    
     while (QTcpSocket* socket = m_server->nextPendingConnection()) {
         QString peerId = extractPeerId(socket);
         
@@ -240,7 +252,19 @@ void P2PEngine::onSocketReadyRead()
     // Process complete messages
     while (conn->buffer.size() >= 5) {  // Minimum: 1 byte type + 4 bytes length
         quint8 type = static_cast<quint8>(conn->buffer[0]);
+        
+        // SECURITY FIX: Validate message length to prevent integer overflow attacks
+        if (conn->buffer.size() < 5) break;
+        
         quint32 length = qFromBigEndian<quint32>(conn->buffer.constData() + 1);
+        
+        // Sanity check on message length (max 10MB for any single message)
+        constexpr quint32 MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
+        if (length > MAX_MESSAGE_SIZE) {
+            qWarning() << "Oversized message from" << peerId << ":" << length << "bytes";
+            socket->disconnectFromHost();
+            return;
+        }
         
         if (conn->buffer.size() < static_cast<qsizetype>(length + 5)) {
             break;  // Wait for more data
@@ -347,8 +371,42 @@ void P2PEngine::handleHandshake(const QString& peerId, const QByteArray& data)
 {
     auto it = m_connections.find(peerId);
     if (it != m_connections.end()) {
-        it->second->peerInfo.name = QString::fromUtf8(data);
+        // SECURITY FIX: Implement proper handshake validation
+        // Expected format: peerId:peerName:protocolVersion
+        QList<QByteArray> parts = data.split(':');
+        
+        if (parts.size() < 3) {
+            qWarning() << "Invalid handshake format from" << peerId;
+            // Disconnect invalid peers
+            it->second->socket->disconnectFromHost();
+            return;
+        }
+        
+        QString receivedPeerId = QString::fromUtf8(parts[0]);
+        QString peerName = QString::fromUtf8(parts[1]);
+        QString protocolVersion = QString::fromUtf8(parts[2]);
+        
+        // Validate that the peer ID matches what we expect
+        if (receivedPeerId != it->first) {
+            qWarning() << "Peer ID mismatch! Expected:" << it->first << "Got:" << receivedPeerId;
+            it->second->socket->disconnectFromHost();
+            return;
+        }
+        
+        // Validate protocol version
+        if (protocolVersion != PROTOCOL_VERSION) {
+            qWarning() << "Protocol version mismatch from" << peerId << ":" << protocolVersion;
+            it->second->socket->disconnectFromHost();
+            return;
+        }
+        
+        it->second->peerInfo.name = peerName;
         it->second->isAuthenticated = true;
+        
+        // Send back our own handshake with version
+        QByteArray response = (m_peerId + ":" + m_localName + ":" + PROTOCOL_VERSION).toUtf8();
+        sendMessage(peerId, MessageType::Handshake, response);
+        
         emit peerConnected(peerId, it->second->peerInfo);
     }
 }

@@ -119,6 +119,14 @@ private:
     mutable QMutex m_mutex;
     
     QString generateFileId(const QString& filePath);
+    
+    /**
+     * @brief Validate file path to prevent directory traversal attacks
+     * @param path The path to validate
+     * @param baseDirectory The allowed base directory
+     * @return True if path is valid and within base directory
+     */
+    bool isValidPath(const QString& path, const QString& baseDirectory);
 };
 
 } // namespace p2p

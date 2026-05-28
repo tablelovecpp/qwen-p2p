@@ -90,6 +90,13 @@ private slots:
     void onCleanupTimer();
     
 private:
+    /**
+     * @brief Check if an IP address is trusted (private/local network)
+     * @param address The IP address to check
+     * @return True if address is from a trusted range
+     */
+    bool isTrustedAddress(const QHostAddress& address) const;
+    
     struct DiscoveryPacket {
         QString magic;          // Protocol magic string
         QString version;        // Protocol version
