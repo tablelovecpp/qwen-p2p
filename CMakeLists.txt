@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 3.16)
 project(P2PTransfer VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -15,9 +15,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
     src/core/application.cpp
     src/core/filemanager.cpp
-    src/core/peerinfo.cpp
     src/network/p2pengine.cpp
-    src/network/connectionhandler.cpp
     src/network/discovery.cpp
     src/ui/mainview.cpp
     src/main.cpp
@@ -26,9 +24,7 @@ set(SOURCES
 set(HEADERS
     include/core/application.hpp
     include/core/filemanager.hpp
-    include/core/peerinfo.hpp
     include/network/p2pengine.hpp
-    include/network/connectionhandler.hpp
     include/network/discovery.hpp
     include/ui/mainview.hpp
 )
