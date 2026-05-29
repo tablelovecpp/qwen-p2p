@@ -1,0 +1,4 @@
+# Hashes of file build rules.
+dfa162fb1c9c50e20f33654890277ae3 .qt_plugins/Qt6_QmlPlugins_Imports_p2ptransfer.cmake
+47327d6fc33c4eb8bb0a6eec6aa3dcb5 CMakeFiles/p2ptransfer_autogen
+57c0c3cc559931cc97b684c08b8fa404 CMakeFiles/p2ptransfer_qmlimportscan

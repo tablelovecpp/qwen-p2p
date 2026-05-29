@@ -5,6 +5,7 @@
 #include <QString>
 #include <QFileInfo>
 #include <QVector>
+#include <QMutex>
 #include <memory>
 #include <filesystem>
 
