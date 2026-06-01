@@ -5,9 +5,11 @@
 #include <QString>
 #include <QFileInfo>
 #include <QVector>
+#include <QMap>
 #include <QMutex>
+#include <QDir>
+#include <QDirIterator>
 #include <memory>
-#include <filesystem>
 
 namespace p2p {
 
@@ -114,6 +116,11 @@ private:
         qint64 totalSize;
         qint64 transferredBytes;
         bool isActive;
+        
+        TransferState() 
+            : totalSize(0)
+            , transferredBytes(0)
+            , isActive(false) {}
     };
     
     QMap<QString, std::unique_ptr<TransferState>> m_activeTransfers;
