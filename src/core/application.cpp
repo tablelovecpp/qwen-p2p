@@ -7,10 +7,14 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QQuickStyle>
 #include <QDir>
 #include <QUuid>
 #include <QStandardPaths>
+#include <QHostInfo>
+
+#ifdef QT_QUICKCONTROLS_LIB
+#include <QQuickStyle>
+#endif
 
 namespace p2p {
 
@@ -207,7 +211,8 @@ QString Application::getVersion()
 
 void Application::setupQmlEngine()
 {
-    m_engine->setInitialLoadPath(QUrl("qrc:/qml/main.qml"));
+    // Load QML file directly (Qt6 method)
+    m_engine->load(QUrl(QStringLiteral("qrc:/qml/main.qml")));
     
     // Create context properties
     QQmlContext* context = m_engine->rootContext();
@@ -216,9 +221,6 @@ void Application::setupQmlEngine()
     // Create MainView instance
     auto* mainView = new MainView(this, this);
     context->setContextProperty("mainView", mainView);
-    
-    // Load QML
-    m_engine->load(QUrl(QStringLiteral("qrc:/qml/main.qml")));
     
     if (m_engine->rootObjects().isEmpty()) {
         qCritical() << "Failed to load QML";
@@ -235,17 +237,27 @@ void Application::registerQmlTypes()
 
 void Application::connectSignals()
 {
-    // P2P Engine signals
-    connect(m_p2pEngine.get(), &P2PEngine::peerCountChanged, 
-            this, &Application::peersChanged);
-    connect(m_p2pEngine.get(), &P2PEngine::speedUpdated,
-            this, &Application::speedChanged);
+    // P2P Engine signals - connect to lambda adapters since signatures don't match directly
     connect(m_p2pEngine.get(), &P2PEngine::peerConnected,
-            this, &Application::peerConnected);
+            this, [this](const QString& peerId, const PeerInfo& info) {
+        QVariantMap peerMap;
+        peerMap["id"] = peerId;
+        peerMap["name"] = info.name;
+        peerMap["address"] = info.address.toString();
+        peerMap["port"] = info.port;
+        emit peerConnected(peerMap);
+    });
     connect(m_p2pEngine.get(), &P2PEngine::peerDisconnected,
             this, &Application::peerDisconnected);
     connect(m_p2pEngine.get(), &P2PEngine::transferStarted,
-            this, &Application::transferStarted);
+            this, [this](const QString& transferId, const TransferMetadata& metadata) {
+        QVariantMap transferMap;
+        transferMap["id"] = transferId;
+        transferMap["fileName"] = metadata.fileName;
+        transferMap["fileSize"] = metadata.fileSize;
+        transferMap["peerId"] = metadata.sourcePeerId;
+        emit transferStarted(transferMap);
+    });
     connect(m_p2pEngine.get(), &P2PEngine::transferProgress,
             this, &Application::transferProgress);
     connect(m_p2pEngine.get(), &P2PEngine::transferCompleted,
@@ -255,7 +267,7 @@ void Application::connectSignals()
     
     // Discovery signals
     connect(m_discovery.get(), &Discovery::peerFound,
-            this, [this](const QString& peerId, const PeerInfo& info) {
+            this, [this](const QString& /*peerId*/, const PeerInfo& info) {
         QVariantMap peerMap;
         peerMap["id"] = info.id;
         peerMap["name"] = info.name;
@@ -267,7 +279,7 @@ void Application::connectSignals()
     
     // File Manager signals
     connect(m_fileManager.get(), &FileManager::transferProgress,
-            this, [this](const QString& fileId, double progress, qint64 bytes) {
+            this, [this](const QString& /*fileId*/, double /*progress*/, qint64 /*bytes*/) {
         // Forward to UI if needed
     });
 }
