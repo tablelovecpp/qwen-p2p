@@ -5,9 +5,8 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QMutexLocker>
-#include <filesystem>
-#include <fstream>
 #include <QSaveFile>
+#include <QDateTime>
 
 namespace p2p {
 
@@ -41,45 +40,66 @@ QVector<FileInfo> FileManager::scanDirectory(const QString& path, bool recursive
 {
     QVector<FileInfo> files;
     
-    try {
-        std::filesystem::path fsPath(path.toStdString());
-        
-        if (!std::filesystem::exists(fsPath)) {
-            emit scanError(tr("Path does not exist: %1").arg(path));
-            return files;
-        }
-        
-        auto options = recursive 
-            ? std::filesystem::recursive_directory_iterator::options::skip_permission_denied
-            : std::filesystem::directory_options::none;
+    QDir dir(path);
+    if (!dir.exists()) {
+        emit scanError(tr("Path does not exist: %1").arg(path));
+        return files;
+    }
+    
+    QStringList filters;
+    filters << "*";
+    
+    QFileInfoList entries;
+    if (recursive) {
+        // Recursive scan using QDir
+        QStringList allEntries = dir.entryList(filters, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString& entryName : allEntries) {
+            QString entryPath = dir.filePath(entryName);
+            QFileInfo fi(entryPath);
             
-        for (const auto& entry : std::filesystem::directory_iterator(fsPath, options)) {
-            if (entry.is_regular_file()) {
+            if (fi.isDir()) {
+                // Recursively scan subdirectory
+                files.append(scanDirectory(entryPath, true));
+            } else if (fi.isFile()) {
                 FileInfo info;
-                info.path = QString::fromStdString(entry.path().string());
-                info.name = QString::fromStdString(entry.path().filename().string());
+                info.path = entryPath;
+                info.name = fi.fileName();
                 info.id = generateFileId(info.path);
-                info.size = static_cast<qint64>(entry.file_size());
+                info.size = fi.size();
                 info.isDirectory = false;
                 info.transferredBytes = 0;
                 info.isComplete = false;
                 
-                // Calculate hash asynchronously for large files
-                if (info.size < 100 * 1024 * 1024) {  // Only hash files < 100MB
+                // Only hash files < 100MB
+                if (info.size < 100 * 1024 * 1024) {
                     info.hash = calculateHash(info.path);
                 }
                 
                 files.append(info);
             }
         }
-        
-        emit scanCompleted(files);
-    } catch (const std::filesystem::filesystem_error& e) {
-        emit scanError(tr("Filesystem error: %1").arg(QString::fromStdString(e.what())));
-    } catch (const std::exception& e) {
-        emit scanError(tr("Error: %1").arg(QString::fromStdString(e.what())));
+    } else {
+        entries = dir.entryInfoList(filters, QDir::Files | QDir::NoDotAndDotDot);
+        for (const QFileInfo& fi : entries) {
+            FileInfo info;
+            info.path = fi.absoluteFilePath();
+            info.name = fi.fileName();
+            info.id = generateFileId(info.path);
+            info.size = fi.size();
+            info.isDirectory = false;
+            info.transferredBytes = 0;
+            info.isComplete = false;
+            
+            // Only hash files < 100MB
+            if (info.size < 100 * 1024 * 1024) {
+                info.hash = calculateHash(info.path);
+            }
+            
+            files.append(info);
+        }
     }
     
+    emit scanCompleted(files);
     return files;
 }
 
