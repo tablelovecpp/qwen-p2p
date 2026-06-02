@@ -196,12 +196,12 @@ bool FileManager::saveFileChunk(const FileInfo& fileInfo, const QByteArray& data
         // Update progress
         auto it = m_activeTransfers.find(fileInfo.id);
         if (it != m_activeTransfers.end()) {
-            it->second->transferredBytes += data.size();
-            double progress = static_cast<double>(it->second->transferredBytes) / it->second->totalSize;
-            emit transferProgress(fileInfo.id, progress, it->second->transferredBytes);
+            it->get()->transferredBytes += data.size();
+            double progress = static_cast<double>(it->get()->transferredBytes) / it->get()->totalSize;
+            emit transferProgress(fileInfo.id, progress, it->get()->transferredBytes);
             
-            if (it->second->transferredBytes >= it->second->totalSize) {
-                it->second->isActive = false;
+            if (it->get()->transferredBytes >= it->get()->totalSize) {
+                it->get()->isActive = false;
                 // Verify file integrity after completion
                 QString finalHash = calculateHash(destPath);
                 if (!fileInfo.hash.isEmpty() && finalHash != fileInfo.hash) {
@@ -228,12 +228,12 @@ bool FileManager::saveFileChunk(const FileInfo& fileInfo, const QByteArray& data
     // Update progress
     auto it = m_activeTransfers.find(fileInfo.id);
     if (it != m_activeTransfers.end()) {
-        it->second->transferredBytes += data.size();
-        double progress = static_cast<double>(it->second->transferredBytes) / it->second->totalSize;
-        emit transferProgress(fileInfo.id, progress, it->second->transferredBytes);
+        it->get()->transferredBytes += data.size();
+        double progress = static_cast<double>(it->get()->transferredBytes) / it->get()->totalSize;
+        emit transferProgress(fileInfo.id, progress, it->get()->transferredBytes);
         
-        if (it->second->transferredBytes >= it->second->totalSize) {
-            it->second->isActive = false;
+        if (it->get()->transferredBytes >= it->get()->totalSize) {
+            it->get()->isActive = false;
             // Commit atomic write
             if (!file->commit()) {
                 emit transferError(fileInfo.id, tr("Failed to commit file write"));
@@ -257,11 +257,11 @@ double FileManager::getTransferProgress(const QString& fileId) const
     QMutexLocker locker(&m_mutex);
     
     auto it = m_activeTransfers.find(fileId);
-    if (it == m_activeTransfers.end() || it->second->totalSize == 0) {
+    if (it == m_activeTransfers.end() || it->get()->totalSize == 0) {
         return 0.0;
     }
     
-    return static_cast<double>(it->second->transferredBytes) / it->second->totalSize;
+    return static_cast<double>(it->get()->transferredBytes) / it->get()->totalSize;
 }
 
 void FileManager::cancelTransfer(const QString& fileId)
@@ -270,7 +270,7 @@ void FileManager::cancelTransfer(const QString& fileId)
     
     auto it = m_activeTransfers.find(fileId);
     if (it != m_activeTransfers.end()) {
-        it->second->file.close();
+        it->get()->file.close();
         m_activeTransfers.erase(it);
     }
 }

@@ -13,7 +13,7 @@
 #include <QHostInfo>
 
 #ifdef QT_QUICKCONTROLS_LIB
-#include <QQuickStyle>
+#include <QtQuickControls2/QQuickStyle>
 #endif
 
 namespace p2p {
