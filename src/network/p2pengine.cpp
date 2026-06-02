@@ -57,7 +57,7 @@ void P2PEngine::stopListening()
     
     // Disconnect all peers
     for (auto it = m_connections.begin(); it != m_connections.end(); ) {
-        it->second->socket->disconnectFromHost();
+        it.value()->socket->disconnectFromHost();
         it = m_connections.erase(it);
     }
     
@@ -89,7 +89,7 @@ QString P2PEngine::connectToPeer(const QHostAddress& address, quint16 port)
             this, [this, peerId]() {
                 onSocketDisconnected();
             });
-    connect(socket.get(), QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
+    connect(socket.get(), QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::errorOccurred),
             this, [this, peerId](QAbstractSocket::SocketError error) {
                 onSocketError(error);
             });
@@ -125,7 +125,7 @@ void P2PEngine::disconnectFromPeer(const QString& peerId)
 {
     auto it = m_connections.find(peerId);
     if (it != m_connections.end()) {
-        it->second->socket->disconnectFromHost();
+        it.value()->socket->disconnectFromHost();
         m_connections.erase(it);
         emit peerDisconnected(peerId);
         emit peerCountChanged();
@@ -166,7 +166,7 @@ QString P2PEngine::requestFile(const QString& peerId, const QString& fileId)
     
     // Send file request
     QByteArray requestData;
-    requestData.append(fileId);
+    requestData.append(fileId.toUtf8());
     sendMessage(peerId, MessageType::FileRequest, requestData);
     
     return fileId;
@@ -226,7 +226,7 @@ void P2PEngine::onNewConnection()
                 this, &P2PEngine::onSocketReadyRead);
         connect(socket, &QTcpSocket::disconnected,
                 this, &P2PEngine::onSocketDisconnected);
-        connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
+        connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::errorOccurred),
                 this, &P2PEngine::onSocketError);
         
         m_connections[peerId] = std::move(conn);
@@ -313,12 +313,12 @@ void P2PEngine::onTransferTimer()
     auto now = std::chrono::steady_clock::now();
     for (auto it = m_connections.begin(); it != m_connections.end(); ) {
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            now - it->second->lastActivity).count();
+            now - it.value()->lastActivity).count();
         
         if (elapsed > KEEPALIVE_INTERVAL / 1000 * 2) {
             // Connection timed out
-            it->second->socket->disconnectFromHost();
-            QString peerId = it->first;
+            it.value()->socket->disconnectFromHost();
+            QString peerId = it.key();
             it = m_connections.erase(it);
             emit peerDisconnected(peerId);
             emit peerCountChanged();
@@ -378,7 +378,7 @@ void P2PEngine::handleHandshake(const QString& peerId, const QByteArray& data)
         if (parts.size() < 3) {
             qWarning() << "Invalid handshake format from" << peerId;
             // Disconnect invalid peers
-            it->second->socket->disconnectFromHost();
+            it.value()->socket->disconnectFromHost();
             return;
         }
         
@@ -387,27 +387,27 @@ void P2PEngine::handleHandshake(const QString& peerId, const QByteArray& data)
         QString protocolVersion = QString::fromUtf8(parts[2]);
         
         // Validate that the peer ID matches what we expect
-        if (receivedPeerId != it->first) {
-            qWarning() << "Peer ID mismatch! Expected:" << it->first << "Got:" << receivedPeerId;
-            it->second->socket->disconnectFromHost();
+        if (receivedPeerId != it.key()) {
+            qWarning() << "Peer ID mismatch! Expected:" << it.key() << "Got:" << receivedPeerId;
+            it.value()->socket->disconnectFromHost();
             return;
         }
         
         // Validate protocol version
         if (protocolVersion != PROTOCOL_VERSION) {
             qWarning() << "Protocol version mismatch from" << peerId << ":" << protocolVersion;
-            it->second->socket->disconnectFromHost();
+            it.value()->socket->disconnectFromHost();
             return;
         }
         
-        it->second->peerInfo.name = peerName;
-        it->second->isAuthenticated = true;
+        it.value()->peerInfo.name = peerName;
+        it.value()->isAuthenticated = true;
         
         // Send back our own handshake with version
         QByteArray response = (m_peerId + ":" + m_localName + ":" + PROTOCOL_VERSION).toUtf8();
         sendMessage(peerId, MessageType::Handshake, response);
         
-        emit peerConnected(peerId, it->second->peerInfo);
+        emit peerConnected(peerId, it.value()->peerInfo);
     }
 }
 
@@ -481,7 +481,7 @@ void P2PEngine::sendMessage(const QString& peerId, MessageType type, const QByte
     auto it = m_connections.find(peerId);
     if (it == m_connections.end()) return;
     
-    QTcpSocket* socket = it->second->socket;
+    QTcpSocket* socket = it.value()->socket;
     QByteArray message = createMessage(type, payload);
     
     socket->write(message);
@@ -561,8 +561,8 @@ QByteArray P2PEngine::createMessage(MessageType type, const QByteArray& payload)
 QString P2PEngine::extractPeerId(QTcpSocket* socket) const
 {
     for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-        if (it->second->socket == socket) {
-            return it->first;
+        if (it.value()->socket == socket) {
+            return it.key();
         }
     }
     return QString();
